@@ -8,16 +8,6 @@ import os
 
 CLUSTER_CONTEXT = os.environ["CLUSTER_CONTEXT"]
 
-kpo_defaults = {
-    "cluster_context": CLUSTER_CONTEXT,
-    "namespace": "default",
-    "labels": {"airflow_kpo_in_cluster": "False"},
-    "get_logs": True,
-    "is_delete_operator_pod": True,
-    "in_cluster": False,
-    "config_file": "/home/astro/config",
-}
-
 # instantiate the DAG
 @dag(
     start_date=datetime(2023, 3, 14),
@@ -36,15 +26,20 @@ def kpo_data_dag():
 
     @task.kubernetes(
         image="fletchjeffastro/kpo-test:0.1.2",
-        name="kpo_data_task",
-        task_id="kpo_data_task",
+        name="kpo_data",
+        task_id="kpo_data",
         env_vars={
             "AWS_KEY": f"{conn.login}",
             "AWS_SECRET": f"{conn.password}",
             },
-        **kpo_defaults,
+        cluster_context = CLUSTER_CONTEXT,
+        namespace = "default",
+        get_logs = True,
+        is_delete_operator_pod = True,
+        in_cluster = False,
+        config_file = "/home/astro/config",
     )
-    def transform_at_task(query_params):
+    def kpo_data(query_params):
         import os
         import duckdb
 
@@ -66,8 +61,15 @@ def kpo_data_dag():
         con.close()
 
         return output_val
-    task_query_params = query_params()
-    transform_at_task.override(do_xcom_push=True)(task_query_params)
+    
+    @task
+    def show_output(output_data):
+        ## this task displays and returns the data returned by the kpo task
+        return output_data
+
+    query_params_task = query_params()
+    kpo_data_task = kpo_data.override(do_xcom_push=True)(query_params_task)
+    show_output(kpo_data_task)
 
 kpo_data_dag()
 
