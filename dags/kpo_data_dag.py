@@ -1,12 +1,12 @@
 from pendulum import datetime
 from airflow.decorators import dag, task
 from airflow.hooks.base import BaseHook
-
-conn = BaseHook.get_connection('aws_s3')
-
 import os
 
+# This is needed so that Airflow knows which cluster to look for in the config file.
+# It is set in the Dockerfile in the root director
 CLUSTER_CONTEXT = os.environ["CLUSTER_CONTEXT"]
+BUCKET_NAME = os.environ["BUCKET_NAME"]
 
 # instantiate the DAG
 @dag(
@@ -16,28 +16,30 @@ CLUSTER_CONTEXT = os.environ["CLUSTER_CONTEXT"]
 )
 def kpo_data_dag():
 
+    # this task will fetch the required filename and the query to execute
     @task
     def query_params():
-        ## this task would fecth the required filename and query
         return {
-            "input_file":"s3://jf-ml-data/all_flight_data.parquet",
+            "input_file":f"s3://{BUCKET_NAME}/all_flight_data.parquet",
             "filter_query":"ORIGINCITYNAME='New York, NY'"
         }
 
+    # this task will create a k8s pod and run kpo_data function python code in
+    # that new pod.
     @task.kubernetes(
         image="fletchjeffastro/kpo-test:0.1.2",
         name="kpo_data",
         task_id="kpo_data",
         env_vars={
-            "AWS_KEY": f"{conn.login}",
-            "AWS_SECRET": f"{conn.password}",
+            "AWS_KEY": "{{ conn.aws_s3.login }}",
+            "AWS_SECRET": "{{ conn.aws_s3.password }}",
             },
         cluster_context = CLUSTER_CONTEXT,
         namespace = "default",
         get_logs = True,
         is_delete_operator_pod = True,
         in_cluster = False,
-        config_file = "/home/astro/config",
+        config_file = "/home/astro/config"
     )
     def kpo_data(query_params):
         import os
@@ -62,9 +64,10 @@ def kpo_data_dag():
 
         return output_val
     
+    # this task displays and returns the data returned by the kpo_data task
     @task
     def show_output(output_data):
-        ## this task displays and returns the data returned by the kpo task
+        
         return output_data
 
     query_params_task = query_params()

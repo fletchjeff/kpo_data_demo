@@ -1,47 +1,43 @@
-Overview
-========
+## Passing Data Between Tasks with the KubernetesPodOperator in Apache Airflow
 
-Welcome to Astronomer! This project was generated after you ran 'astro dev init' using the Astronomer CLI. This readme describes the contents of the project, as well as how to run Apache Airflow on your local machine.
+This repo is the code that goes with [this article](https://medium.com/p/7ae9e3e6675c/edit) that discuses how to pass data between tasks with the KubernetesPodOperator in Apache Airflow. 
 
-Project Contents
-================
+There are some requirements you need to implement to get this running.
 
-Your Astro project contains the following files and folders:
+### Run a Local Airflow Deployment
+For this step you will need an Airflow instance to work with. One easiest way is to do this localling using the Astronomer [astro cli](https://docs.astronomer.io/astro/cli/overview) installed along with some form of Docker engine (e.g. Docker Desktop). Clone this project into local folder and open that folder. 
 
-- dags: This folder contains the Python files for your Airflow DAGs. By default, this directory includes an example DAG that runs every 30 minutes and simply prints the current date. It also includes an empty 'my_custom_function' that you can fill out to execute Python code.
-- Dockerfile: This file contains a versioned Astro Runtime Docker image that provides a differentiated Airflow experience. If you want to execute other commands or overrides at runtime, specify them here.
-- include: This folder contains any additional files that you want to include as part of your project. It is empty by default.
-- packages.txt: Install OS-level packages needed for your project by adding them to this file. It is empty by default.
-- requirements.txt: Install Python packages needed for your project by adding them to this file. It is empty by default.
-- plugins: Add custom or community plugins for your project to this file. It is empty by default.
-- airflow_settings.yaml: Use this local-only file to specify Airflow Connections, Variables, and Pools instead of entering them in the Airflow UI as you develop DAGs in this project.
+#### Copy `aws` cli and `kubectl` Config Details
+From here you need to add your kubernetes authentication details. Copy your aws credential files (`config` + `credentials`) into the `include/.aws/` directory. These files are usually in `~/.aws/`. You may have several sets of credentials, so you can delete the ones you don't need before copying over.
+```
+$ tree ~/.aws/
+/Users/jeff/.aws/
+├── config
+└── credentials
+0 directories, 2 files
+```
 
-Deploy Your Project Locally
-===========================
+You also need to copy the `KUBECONFIG` file for the cluster ino the `include/` directory. The is usually located at `~/.kube/config`. Again you may have multiple cluster contexts in that file, so you can delete the ones you don't need before copying over.
 
-1. Start Airflow on your local machine by running 'astro dev start'.
+These files will be copied into the Docker image used for the local deployment and are *not* pushed to the git repo, so the credentials will remain _relatively_ safe.
 
-This command will spin up 4 Docker containers on your machine, each for a different Airflow component:
+#### Add the source Data File to your S3 Bucket
+The source data for this project is available for download [here](https://jf-ml-data.s3.eu-central-1.amazonaws.com/all_flight_data.parquet). Download the `all_flight_data.parquet` file and upload to an S3 bucket that you have access to. You need to add the bucket name as an environment variable in the next step.
 
-- Postgres: Airflow's Metadata Database
-- Webserver: The Airflow component responsible for rendering the Airflow UI
-- Scheduler: The Airflow component responsible for monitoring and triggering tasks
-- Triggerer: The Airflow component responsible for triggering deferred tasks
+#### Update the `Dockerfile`
+Next open the `Dockerfile` file and update the `CLUSTER_CONTEXT` and `BUCKET_NAME` environment variables with the details specific to the cluster you will be interacting with and the S3 bucket you will be using.
 
-2. Verify that all 4 Docker containers were created by running 'docker ps'.
+```Dockerfile
+ENV CLUSTER_CONTEXT=[your cluster context] \
+BUCKET_NAME=[your bucket name]
+```
 
-Note: Running 'astro dev start' will start your project with the Airflow Webserver exposed at port 8080 and Postgres exposed at port 5432. If you already have either of those ports allocated, you can either stop your existing Docker containers or change the port.
+Once you've updated the Dockerfile and added your credentials to the project, you can start up the local Airflow UI but running `astro dev start` in the project directory. This will bring up an Airflow instance your you local machine that you can connect to on http://localhost:8080/.
 
-3. Access the Airflow UI for your local Airflow project. To do so, go to http://localhost:8080/ and log in with 'admin' for both your Username and Password.
+#### Create an AWS Connection
+For the KPO pod to read and write data from S3, it will require AWS connection credentials. Therefore you need to add your AWS connection details to Airflow. This is different to the AWS config file from a previous step, although it does contain the same info. In the Airflow UI, got to `Admin > Connections` and add a new `Amazon Web Services` connection. Fill in your AWS details as follows, make sure to use the same `aws_s3` connection ID.
 
-You should also be able to access your Postgres Database at 'localhost:5432/postgres'.
+![connections](images/s3_conn.png)
 
-Deploy Your Project to Astronomer
-=================================
-
-If you have an Astronomer account, pushing code to a Deployment on Astronomer is simple. For deploying instructions, refer to Astronomer documentation: https://docs.astronomer.io/cloud/deploy-code/
-
-Contact
-=======
-
-The Astronomer CLI is maintained with love by the Astronomer team. To report a bug or suggest a change, reach out to our support
+#### Trigger the DAG
+If you have completed all the previous steps, you should be good to go. Trigger the DAG in the local Airflow UI and marvel at how the KPO operates a pod!
